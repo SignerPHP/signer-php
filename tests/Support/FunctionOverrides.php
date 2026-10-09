@@ -116,3 +116,56 @@ function openssl_x509_parse(string $certificate, bool $short_names = true): arra
 
     return \openssl_x509_parse($certificate, $short_names);
 }
+
+namespace SignerPHP\Infrastructure\PdfCore\Service;
+
+final class PdfCoreSignatureRuntimeOverrideState
+{
+    public static bool $forceTempnamFailure = false;
+
+    public static bool $forceProcOpenFailure = false;
+
+    public static bool $forceFilePutContentsFailure = false;
+
+    /** @var array<int, string> */
+    public static array $failTempnamPrefixes = [];
+}
+
+function tempnam(string $directory, string $prefix): string|false
+{
+    if (PdfCoreSignatureRuntimeOverrideState::$forceTempnamFailure) {
+        return false;
+    }
+
+    foreach (PdfCoreSignatureRuntimeOverrideState::$failTempnamPrefixes as $forcedPrefix) {
+        if ($forcedPrefix !== '' && str_starts_with($prefix, $forcedPrefix)) {
+            return false;
+        }
+    }
+
+    return \tempnam($directory, $prefix);
+}
+
+function proc_open(
+    array|string $command,
+    array $descriptor_spec,
+    &$pipes,
+    ?string $cwd = null,
+    ?array $env_vars = null,
+    ?array $options = null
+): mixed {
+    if (PdfCoreSignatureRuntimeOverrideState::$forceProcOpenFailure) {
+        return false;
+    }
+
+    return \proc_open($command, $descriptor_spec, $pipes, $cwd, $env_vars, $options);
+}
+
+function file_put_contents(string $filename, mixed $data, int $flags = 0, $context = null): int|false
+{
+    if (PdfCoreSignatureRuntimeOverrideState::$forceFilePutContentsFailure) {
+        return false;
+    }
+
+    return \file_put_contents($filename, $data, $flags, $context);
+}
