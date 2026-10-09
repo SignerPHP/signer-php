@@ -112,6 +112,10 @@ class Signature
 
     public function calculatePkcs7Signature(string $fileNameToSign, string $tmpFolder = '/tmp'): string
     {
+        if ($this->subFilter === SignatureObject::SUBFILTER_ETSI_CADES_DETACHED) {
+            return $this->calculateCadesDetachedSignature($fileNameToSign, $tmpFolder);
+        }
+
         $filesizeOriginal = $this->runtime->fileSize($fileNameToSign);
         if ($filesizeOriginal === false) {
             throw new PdfCoreSigningException('Could not open file '.$fileNameToSign);
@@ -166,6 +170,51 @@ class Signature
         }
 
         return $this->pdfDocument;
+    }
+
+    /**
+     * Build a detached CAdES-BES signature (PAdES Baseline-B).
+     *
+     * openssl_pkcs7_sign() cannot emit the ESS signing-certificate-v2 signed
+     * attribute required by ETSI EN 319 142-1, so this profile delegates to the
+     * runtime, which uses the OpenSSL CLI (`openssl cms -sign -cades`). When the
+     * installed OpenSSL exposes `-no_signing_time` the CMS signing-time attribute
+     * is omitted as the baseline requires; the signing time is carried by the /M
+     * dictionary entry instead.
+     */
+    private function calculateCadesDetachedSignature(string $fileNameToSign, string $tmpFolder): string
+    {
+        $tempFilename = $this->runtime->createTempFile($tmpFolder, 'pdfsign');
+        if ($tempFilename === false) {
+            throw new PdfCoreSigningException('Could not create a temporary filename');
+        }
+
+        try {
+            $signed = $this->runtime->signCadesDetached(
+                $fileNameToSign,
+                $tempFilename,
+                $this->certificate['cert'],
+                $this->certificate['pkey'],
+            );
+            if (! $signed) {
+                throw new PdfCoreSigningException('Failed to create the CAdES detached signature');
+            }
+
+            $signature = $this->runtime->readFile($tempFilename);
+            if ($signature === false) {
+                throw new PdfCoreSigningException('Could not read generated signature file.');
+            }
+
+            if ($signature === '') {
+                throw new PdfCoreSigningException('Generated signature file is empty.');
+            }
+
+            return str_pad($this->runtime->toHex($signature), self::SIGNATURE_MAX_LENGTH, '0');
+        } finally {
+            if ($this->runtime->isFile($tempFilename)) {
+                $this->runtime->removeFile($tempFilename);
+            }
+        }
     }
 
     private function requireMetadata(): Metadata

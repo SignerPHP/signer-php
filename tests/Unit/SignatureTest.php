@@ -24,6 +24,11 @@ final class SignatureRuntimeSpy implements SignatureRuntimeInterface
 
     public bool $signResult = true;
 
+    public bool $cadesSignResult = true;
+
+    /** @var array<int, array<string, string>> */
+    public array $cadesCalls = [];
+
     public string|false $readContent = "abc%%EOF\n\n------header\n\nQQ==";
 
     public bool $isFile = true;
@@ -48,6 +53,18 @@ final class SignatureRuntimeSpy implements SignatureRuntimeInterface
     public function signPkcs7(string $inputFile, string $outputFile, string $certificate, string $privateKey): bool
     {
         return $this->signResult;
+    }
+
+    public function signCadesDetached(string $inputFile, string $outputFile, string $certificate, string $privateKey): bool
+    {
+        $this->cadesCalls[] = [
+            'input' => $inputFile,
+            'output' => $outputFile,
+            'certificate' => $certificate,
+            'privateKey' => $privateKey,
+        ];
+
+        return $this->cadesSignResult;
     }
 
     public function readFile(string $path): string|false
@@ -201,6 +218,86 @@ final class SignatureTest extends TestCase
         self::assertStringStartsWith('ABCD', $result);
         self::assertSame(Signature::SIGNATURE_MAX_LENGTH, strlen($result));
         self::assertSame(['/tmp/fake-signature.p7m'], $runtime->removedFiles);
+    }
+
+    public function test_calculate_pkcs7_signature_uses_cades_runtime_for_etsi_subfilter(): void
+    {
+        $runtime = new SignatureRuntimeSpy;
+        $runtime->hex = 'ABCD';
+
+        $signature = Signature::new($runtime)
+            ->withCertificate(['cert' => 'CERT', 'pkey' => 'KEY', 'extracerts' => ''])
+            ->withSubFilter(SignatureObject::SUBFILTER_ETSI_CADES_DETACHED);
+
+        $result = $signature->calculatePkcs7Signature('/tmp/in.pdf');
+
+        self::assertStringStartsWith('ABCD', $result);
+        self::assertSame(Signature::SIGNATURE_MAX_LENGTH, strlen($result));
+        self::assertCount(1, $runtime->cadesCalls);
+        self::assertSame('/tmp/in.pdf', $runtime->cadesCalls[0]['input']);
+        self::assertSame('CERT', $runtime->cadesCalls[0]['certificate']);
+        self::assertSame('KEY', $runtime->cadesCalls[0]['privateKey']);
+        self::assertSame(['/tmp/fake-signature.p7m'], $runtime->removedFiles);
+    }
+
+    public function test_calculate_cades_signature_throws_when_temp_file_cannot_be_created(): void
+    {
+        $runtime = new SignatureRuntimeSpy;
+        $runtime->tempFile = false;
+
+        $signature = Signature::new($runtime)
+            ->withCertificate(['cert' => 'CERT', 'pkey' => 'KEY', 'extracerts' => ''])
+            ->withSubFilter(SignatureObject::SUBFILTER_ETSI_CADES_DETACHED);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Could not create a temporary filename');
+
+        $signature->calculatePkcs7Signature('/tmp/in.pdf');
+    }
+
+    public function test_calculate_cades_signature_throws_when_signing_fails(): void
+    {
+        $runtime = new SignatureRuntimeSpy;
+        $runtime->cadesSignResult = false;
+
+        $signature = Signature::new($runtime)
+            ->withCertificate(['cert' => 'CERT', 'pkey' => 'KEY', 'extracerts' => ''])
+            ->withSubFilter(SignatureObject::SUBFILTER_ETSI_CADES_DETACHED);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Failed to create the CAdES detached signature');
+
+        $signature->calculatePkcs7Signature('/tmp/in.pdf');
+    }
+
+    public function test_calculate_cades_signature_throws_when_output_cannot_be_read(): void
+    {
+        $runtime = new SignatureRuntimeSpy;
+        $runtime->readContent = false;
+
+        $signature = Signature::new($runtime)
+            ->withCertificate(['cert' => 'CERT', 'pkey' => 'KEY', 'extracerts' => ''])
+            ->withSubFilter(SignatureObject::SUBFILTER_ETSI_CADES_DETACHED);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Could not read generated signature file.');
+
+        $signature->calculatePkcs7Signature('/tmp/in.pdf');
+    }
+
+    public function test_calculate_cades_signature_throws_when_output_is_empty(): void
+    {
+        $runtime = new SignatureRuntimeSpy;
+        $runtime->readContent = '';
+
+        $signature = Signature::new($runtime)
+            ->withCertificate(['cert' => 'CERT', 'pkey' => 'KEY', 'extracerts' => ''])
+            ->withSubFilter(SignatureObject::SUBFILTER_ETSI_CADES_DETACHED);
+
+        $this->expectException(\Exception::class);
+        $this->expectExceptionMessage('Generated signature file is empty.');
+
+        $signature->calculatePkcs7Signature('/tmp/in.pdf');
     }
 
     public function test_generate_signature_in_document_requires_pdf_document(): void

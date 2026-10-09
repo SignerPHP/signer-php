@@ -12,6 +12,8 @@ interface SignatureRuntimeInterface
 
     public function signPkcs7(string $inputFile, string $outputFile, string $certificate, string $privateKey): bool;
 
+    public function signCadesDetached(string $inputFile, string $outputFile, string $certificate, string $privateKey): bool;
+
     public function readFile(string $path): string|false;
 
     public function removeFile(string $path): void;
