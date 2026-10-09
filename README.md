@@ -1,3 +1,6 @@
+> [!IMPORTANT]
+> **This repository has been archived and is no longer maintained.** Use [SignerPHP/pdf-signer](https://github.com/SignerPHP/pdf-signer) instead. See the [deprecation notice (#28)](https://github.com/SignerPHP/signer-php/issues/28) for migration details.
+
 # Signer PHP (PDF Module)
 
 PHP library to digitally sign PDFs using A1 certificates (`.pfx/.p12`) with a simple, developer-friendly API.
